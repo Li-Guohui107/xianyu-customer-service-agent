@@ -27,7 +27,14 @@ python -m venv .venv
 - 客服页：<http://127.0.0.1:8011/>
 - 接口说明：<http://127.0.0.1:8011/docs>
 
-复制 `.env.example` 为 `.env` 后，在本机填写 `DEEPSEEK_API_KEY` 和 `WECHAT_ID`。没有密钥时用模板生成。`.env`、数据库和 `browser-profile/` 都不会提交。
+## 仓库里没有、下载后要自己补上的内容
+
+这些文件含有密钥、登录状态或本机记录，所以没有放进 GitHub。克隆或下载之后按下面补回，补好后仍然不要提交。
+
+- **`.venv/`**：本机虚拟环境。按上面的安装命令重新创建并安装依赖即可。
+- **`.env`**：DeepSeek 密钥和微信号。在项目根目录运行 `Copy-Item .env.example .env`，再用编辑器打开 `.env`。填写 `DEEPSEEK_API_KEY`（DeepSeek 开放平台的密钥）和 `WECHAT_ID`（买家问价格时给出的微信号）。`DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL` 保持示例里的值。密钥留空时用模板，不访问 DeepSeek。微信号留空时只说微信详谈，不编造号码。
+- **`data/agent.db`**：会话和已经回复过的记录。不用手工创建，第一次启动服务时会自动生成空库。仓库里没有旧对话；换一台电脑会从空记录开始。如果要沿用原来那台电脑的记录，把原来的 `data/agent.db` 复制到新项目的 `data/` 下面，不要提交。
+- **`browser-profile/`**：闲鱼网页的登录状态。不用手工创建。第一次自动回复时，程序会用这个目录打开 Chrome 或 Edge。在弹出的窗口打开 [https://www.goofish.com/](https://www.goofish.com/) 自己登录。仓库里没有旧的登录，换电脑需要重新登录。不要把这个目录或其中的 Cookie 提交。
 
 ## 闲鱼网页自动回复
 
