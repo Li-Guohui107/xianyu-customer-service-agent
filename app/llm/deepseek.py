@@ -45,6 +45,12 @@ class DeepSeekReplyGenerator:
         self._client = client
         self.wechat_id = wechat_id.strip()
 
+    def _http(self):
+        """同一条连接反复用，避免每句回复都重新握手。"""
+        if self._client is None:
+            self._client = httpx.Client(timeout=self.timeout)
+        return self._client
+
     def generate(
         self,
         buyer_message: str,
@@ -67,7 +73,7 @@ class DeepSeekReplyGenerator:
                 "content": f"商品资料：\n{knowledge_text}\n\n买家消息：\n{buyer_message}",
             }
         )
-        http = self._client or httpx.Client(timeout=self.timeout)
+        http = self._http()
         try:
             response = http.post(
                 f"{self.base_url}/chat/completions",

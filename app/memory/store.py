@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id);
+CREATE TABLE IF NOT EXISTS sent_replies (
+    chat_key TEXT NOT NULL,
+    buyer_message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (chat_key, buyer_message)
+);
 """
 
 
@@ -97,6 +103,45 @@ class SessionStore:
             connection.execute(
                 "UPDATE sessions SET product_id = ? WHERE id = ?",
                 (product_id, session_id),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+    def ensure_session(self, session_id: str) -> str:
+        if self.exists(session_id):
+            return session_id
+        connection = self._connect()
+        try:
+            connection.execute(
+                "INSERT INTO sessions (id, created_at) VALUES (?, ?)",
+                (session_id, _now()),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return session_id
+
+    def has_sent_reply(self, chat_key: str, buyer_message: str) -> bool:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT 1 FROM sent_replies WHERE chat_key = ? AND buyer_message = ?",
+                (chat_key, buyer_message),
+            ).fetchone()
+        finally:
+            connection.close()
+        return row is not None
+
+    def remember_sent_reply(self, chat_key: str, buyer_message: str) -> None:
+        connection = self._connect()
+        try:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO sent_replies (chat_key, buyer_message, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (chat_key, buyer_message, _now()),
             )
             connection.commit()
         finally:

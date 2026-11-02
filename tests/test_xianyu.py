@@ -44,14 +44,15 @@ def test_browser_connector_never_sends_and_is_unavailable(tmp_path):
         configured.read_buyer_messages()
 
 
-def test_status_and_homepage_do_not_offer_sending(client):
+def test_status_and_homepage_describe_direct_reply(client):
     status = client.get("/api/xianyu/status")
     assert status.json() == {
         "mode": "manual_paste",
         "browser_enabled": False,
         "sends_messages": False,
+        "detail": "自动回复没开",
     }
     page = client.get("/")
     assert page.status_code == 200
     assert "模拟买家说的话" in page.text
-    assert "发送到闲鱼" not in page.text
+    assert "直接回复" in page.text

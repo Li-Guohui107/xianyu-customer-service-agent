@@ -84,6 +84,7 @@ class ImportResponse(BaseModel):
 
 
 class XianyuStatus(BaseModel):
-    mode: Literal["manual_paste"]
+    mode: Literal["manual_paste", "browser_auto"]
     browser_enabled: bool
     sends_messages: bool
+    detail: str = ""

@@ -119,7 +119,7 @@
         <button type="button" id="new-session">新对话</button>
       </div>
       <p id="product-facts" class="facts">选一项服务，或直接输入买家说的话。</p>
-      <p class="hint">右边的黄字是回复草稿，复制后自己发。不会发到闲鱼。</p>
+      <p class="hint" id="live-status">正在连接闲鱼网页，新消息会直接回复。</p>
     </header>
     <div id="history" class="chat"></div>
     <form id="draft-form" class="composer">
@@ -299,8 +299,20 @@
       renderHistory([]);
     });
 
+    async function refreshLiveStatus() {
+      try {
+        const payload = await readJson(await fetch("/api/xianyu/status"));
+        const status = document.querySelector("#live-status");
+        status.textContent = payload.detail || "闲鱼网页上的新消息会直接回复。";
+      } catch (error) {
+        document.querySelector("#live-status").textContent = "还没连上闲鱼网页。";
+      }
+    }
+
     loadProducts().catch(() => showError("服务列表加载失败。"));
     loadHistory().catch(() => showError("对话读取失败。"));
+    refreshLiveStatus();
+    setInterval(refreshLiveStatus, 2000);
   </script>
 </body>
 </html>
