@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>闲鱼对话</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #e8e8e8;
+      color: #1a1a1a;
+    }
+    .phone {
+      max-width: 420px;
+      height: 100vh;
+      height: 100dvh;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      background: #f5f5f5;
+    }
+    header {
+      background: #fff;
+      border-bottom: 1px solid #eee;
+      padding: 10px 12px 8px;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    select, textarea, button { font: inherit; }
+    select {
+      flex: 1;
+      border: 0;
+      background: transparent;
+      font-weight: 650;
+      min-width: 0;
+    }
+    #new-session {
+      border: 0;
+      background: transparent;
+      color: #666;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .facts, .hint, .error { margin: 4px 0 0; color: #888; font-size: 12px; }
+    .error { color: #b42318; min-height: 1em; }
+    .chat {
+      flex: 1;
+      overflow: auto;
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .row { display: flex; flex-direction: column; max-width: 78%; }
+    .row.buyer { align-self: flex-start; }
+    .row.assistant { align-self: flex-end; align-items: flex-end; }
+    .who { font-size: 11px; color: #999; margin-bottom: 3px; }
+    .bubble {
+      padding: 8px 10px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .buyer .bubble { background: #fff; }
+    .assistant .bubble { background: #ffe14c; }
+    .bubble-tools { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+    .tag { font-size: 11px; color: #8a5a00; }
+    .tag.high { color: #b42318; }
+    .copy, .send {
+      border: 0;
+      cursor: pointer;
+      background: transparent;
+      color: #666;
+      padding: 0;
+      font-size: 12px;
+    }
+    .composer {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      padding: 8px;
+      background: #fff;
+      border-top: 1px solid #eee;
+    }
+    textarea {
+      flex: 1;
+      border: 0;
+      resize: none;
+      min-height: 40px;
+      max-height: 96px;
+      padding: 8px 4px;
+      background: transparent;
+    }
+    .send {
+      background: #ffe14c;
+      color: #1a1a1a;
+      border-radius: 16px;
+      padding: 8px 14px;
+      font-size: 14px;
+    }
+    .send:disabled { opacity: 0.55; }
+    .empty { color: #999; text-align: center; margin-top: 40px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="phone">
+    <header>
+      <div class="top">
+        <select id="product" aria-label="当前咨询的服务">
+          <option value="">按买家的话匹配服务</option>
+        </select>
+        <button type="button" id="new-session">新对话</button>
+      </div>
+      <p id="product-facts" class="facts">选一项服务，或直接输入买家说的话。</p>
+      <p class="hint">右边的黄字是回复草稿，复制后自己发。不会发到闲鱼。</p>
+    </header>
+    <div id="history" class="chat"></div>
+    <form id="draft-form" class="composer">
+      <textarea id="message" rows="1" required placeholder="模拟买家说的话"></textarea>
+      <button type="submit" class="send" id="submit">发送</button>
+    </form>
+    <p id="error" class="error" role="alert"></p>
+  </div>
+  <script>
+    const sessionKey = "xianyu_draft_session";
+    let sessionId = localStorage.getItem(sessionKey);
+    let latest = null;
+    const productSelect = document.querySelector("#product");
+    const messageBox = document.querySelector("#message");
+    const errorBox = document.querySelector("#error");
+    const historyBox = document.querySelector("#history");
+    const submitButton = document.querySelector("#submit");
+    const products = new Map();
+
+    function showError(text) {
+      errorBox.textContent = text || "";
+    }
+
+    function renderFacts() {
+      const facts = document.querySelector("#product-facts");
+      const product = products.get(productSelect.value);
+      facts.textContent = product
+        ? product.price + " · " + product.ship_time
+        : "未选服务时，按买家的话匹配。下一句会沿用这一项。";
+    }
+
+    function renderHistory(messages) {
+      historyBox.replaceChildren();
+      if (!messages.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty";
+        empty.textContent = "买家在左边，回复草稿在右边。";
+        historyBox.append(empty);
+        return;
+      }
+      messages.forEach((item, index) => {
+        const mine = item.role !== "buyer";
+        const row = document.createElement("div");
+        row.className = "row " + (mine ? "assistant" : "buyer");
+        const who = document.createElement("div");
+        who.className = "who";
+        who.textContent = mine ? "我" : "买家";
+        const bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = item.content;
+        row.append(who, bubble);
+        const isLatestDraft = mine && index === messages.length - 1;
+        if (mine) {
+          const tools = document.createElement("div");
+          tools.className = "bubble-tools";
+          const tag = document.createElement("span");
+          const high = item.risk_level === "high" || (isLatestDraft && latest && latest.needs_human_review);
+          tag.className = "tag" + (high ? " high" : "");
+          tag.textContent = high ? "需人工看" : "草稿";
+          const copy = document.createElement("button");
+          copy.type = "button";
+          copy.className = "copy";
+          copy.textContent = "复制";
+          copy.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(item.content);
+              copy.textContent = "已复制";
+            } catch (error) {
+              showError("复制失败，请长按文字复制。");
+            }
+          });
+          tools.append(tag, copy);
+          if (isLatestDraft && latest && latest.risk_reasons.length) {
+            const reason = document.createElement("div");
+            reason.className = "tag high";
+            reason.textContent = latest.risk_reasons.join("；");
+            row.append(tools, reason);
+          } else {
+            row.append(tools);
+          }
+        }
+        historyBox.append(row);
+      });
+      historyBox.scrollTop = historyBox.scrollHeight;
+    }
+
+    async function readJson(response) {
+      const payload = await response.json();
+      if (!response.ok) {
+        const detail = payload.detail;
+        throw new Error(typeof detail === "string" ? detail : "请求没有通过");
+      }
+      return payload;
+    }
+
+    async function loadProducts() {
+      const payload = await readJson(await fetch("/api/products"));
+      payload.forEach((product) => {
+        products.set(product.product_id, product);
+        const option = document.createElement("option");
+        option.value = product.product_id;
+        option.textContent = product.title + " · " + product.price;
+        productSelect.append(option);
+      });
+      renderFacts();
+    }
+
+    async function loadHistory() {
+      if (!sessionId) {
+        renderHistory([]);
+        return;
+      }
+      const response = await fetch("/api/sessions/" + sessionId);
+      if (response.status === 404) {
+        sessionId = null;
+        latest = null;
+        localStorage.removeItem(sessionKey);
+        renderHistory([]);
+        return;
+      }
+      const payload = await readJson(response);
+      renderHistory(payload.messages);
+    }
+
+    async function createDraft(allowRetry) {
+      const body = { buyer_message: messageBox.value.trim() };
+      if (!body.buyer_message) {
+        showError("先写买家说的话。");
+        return;
+      }
+      if (productSelect.value) body.product_id = productSelect.value;
+      if (sessionId) body.session_id = sessionId;
+      submitButton.disabled = true;
+      showError("");
+      try {
+        const response = await fetch("/api/drafts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (response.status === 404 && allowRetry) {
+          sessionId = null;
+          localStorage.removeItem(sessionKey);
+          await createDraft(false);
+          return;
+        }
+        latest = await readJson(response);
+        sessionId = latest.session_id;
+        localStorage.setItem(sessionKey, sessionId);
+        messageBox.value = "";
+        await loadHistory();
+      } catch (error) {
+        showError(error.message || "没有生成草稿。");
+      } finally {
+        submitButton.disabled = false;
+        messageBox.focus();
+      }
+    }
+
+    productSelect.addEventListener("change", renderFacts);
+    document.querySelector("#draft-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      createDraft(true);
+    });
+    messageBox.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        createDraft(true);
+      }
+    });
+    document.querySelector("#new-session").addEventListener("click", () => {
+      sessionId = null;
+      latest = null;
+      localStorage.removeItem(sessionKey);
+      messageBox.value = "";
+      showError("");
+      renderHistory([]);
+    });
+
+    loadProducts().catch(() => showError("服务列表加载失败。"));
+    loadHistory().catch(() => showError("对话读取失败。"));
+  </script>
+</body>
+</html>
