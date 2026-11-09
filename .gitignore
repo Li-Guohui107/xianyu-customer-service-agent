@@ -220,6 +220,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Local runtime data
+data/publish-images/*
+!data/publish-images/.gitkeep
 data/*.db
 data/*.db-journal
 data/*.db-wal

@@ -55,13 +55,11 @@ SNAPSHOT_JS = """
 
 OPEN_UNREAD_JS = """
 () => {
-  const viewW = window.innerWidth;
-  const badge = [...document.querySelectorAll("span, em, i, sup")].find((el) => {
-    const rect = el.getBoundingClientRect();
-    const text = (el.innerText || "").trim();
-    return rect.left < viewW * 0.32 && rect.width > 0 && rect.width < 30 && /^[1-9]\\d*$/.test(text);
+  const item = [...document.querySelectorAll("[class*='conversation-item--']")].find((el) => {
+    return [...el.querySelectorAll(".ant-scroll-number")].some((badge) => {
+      return /^[1-9]\\d*$/.test((badge.innerText || "").trim());
+    });
   });
-  const item = badge && (badge.closest("a, li, [role='listitem']") || badge.parentElement);
   if (!item) return false;
   item.click();
   return true;
@@ -128,7 +126,7 @@ def _open_next(page) -> None:
         return
     wait = getattr(page, "wait_for_timeout", None)
     if callable(wait):
-        wait(200)
+        wait(500)
 
 
 def reply_once(page, app) -> str | None:
@@ -219,11 +217,13 @@ def wait_for_debugger(port: int = DEBUG_PORT, timeout: float = 8.0) -> bool:
     return False
 
 
-def connect_page(port: int = DEBUG_PORT):
+def connect_page(port: int = DEBUG_PORT, *, launch: bool = True):
     """接到已经打开调试端口的浏览器。只接入，不关闭浏览器进程。"""
     from playwright.sync_api import sync_playwright
 
     if not debugger_is_open(port):
+        if not launch:
+            raise RuntimeError("还没连上闲鱼网页")
         launch_browser(port)
         if not wait_for_debugger(port):
             raise RuntimeError("浏览器进程没有打开调试端口")

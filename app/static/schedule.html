@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>定时发布</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #e8e8e8;
+      color: #1a1a1a;
+    }
+    .sheet {
+      max-width: 720px;
+      margin: 24px auto;
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 20px 28px;
+    }
+    h1 { font-size: 20px; margin: 0; }
+    .back { color: #666; font-size: 13px; text-decoration: none; }
+    .lead, .note { color: #666; font-size: 13px; line-height: 1.5; }
+    .switch { display: flex; align-items: center; gap: 8px; margin: 16px 0; font-weight: 650; }
+    .slots { display: flex; flex-direction: column; gap: 10px; }
+    .slot {
+      display: grid;
+      grid-template-columns: 120px 96px 1fr auto auto auto;
+      gap: 8px;
+      align-items: center;
+      background: #f7f7f7;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .copy-title, .copy-body { grid-column: 1 / -1; width: 100%; }
+    .copy-body { min-height: 96px; resize: vertical; }
+    #samples { width: 100%; min-height: 140px; border: 1px solid #e4e4e4; border-radius: 8px; padding: 8px; }
+    input, textarea, select, button { font: inherit; }
+    input[type="time"], input[type="number"], input.copy-title, textarea.copy-body, select {
+      border: 1px solid #e4e4e4;
+      background: #fff;
+      border-radius: 8px;
+      padding: 8px;
+      min-width: 0;
+    }
+    button { cursor: pointer; border: 0; background: transparent; color: #666; }
+    .add, .save, .now {
+      border-radius: 16px;
+      padding: 8px 14px;
+    }
+    .add, .save { background: #ffe14c; color: #1a1a1a; }
+    .actions { display: flex; gap: 8px; margin-top: 14px; }
+    .empty { color: #999; margin: 8px 0 0; }
+    .error { color: #b42318; min-height: 1.2em; }
+    .runs { margin-top: 18px; }
+    .run { font-size: 13px; margin: 6px 0; white-space: pre-wrap; }
+    .run.failed { color: #b42318; }
+    @media (max-width: 640px) {
+      .slot { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <a class="back" href="/">返回对话</a>
+    <h1>每天定时发布</h1>
+    <p class="lead">每个时间点发一条服务，标价、标题和描述都可以改。想发几条就加几行，一天最多 12 个。保存后到点会发；如果到点时没发成，当天还会补上，定时成功一次就不再发。「现在发」不占用这次定时。标题和描述没改过的，换一天还会换一种说法。</p>
+    <label class="switch"><input id="enabled" type="checkbox"> 启用定时发布</label>
+    <div id="slots" class="slots"></div>
+    <p id="empty" class="empty">还没有发布时间。</p>
+    <div class="actions">
+      <button type="button" class="add" id="add">添加一个时间</button>
+      <button type="button" class="save" id="save">保存</button>
+    </div>
+    <p id="error" class="error" role="alert"></p>
+    <h2>以往文案</h2>
+    <p class="note">把以前商品的标题和描述贴在这里，一条里第一行是标题，下面是描述。多条之间空一行。每天会按这个口气重写，同一天不变，换一天换一种说法。不写微信号，也不照搬不能承诺的句子。</p>
+    <textarea id="samples" placeholder="机器学习项目，可运行&#10;给你数据处理和训练脚本。确认数据后两天交付。不含报告正文。"></textarea>
+    <div class="actions">
+      <button type="button" class="save" id="save-samples">保存文案</button>
+    </div>
+    <p class="note">图片不是必须先选。若闲鱼要求图片，把 jpg 或 png 放到 data/publish-images/，文件名用商品编号，例如 demo-ml-002.jpg。</p>
+    <section class="runs">
+      <h2>今天</h2>
+      <p id="detail" class="note"></p>
+      <div id="runs"></div>
+    </section>
+  </main>
+  <script>
+    const slotsBox = document.querySelector("#slots");
+    const emptyBox = document.querySelector("#empty");
+    const errorBox = document.querySelector("#error");
+    let products = [];
+    let rows = [];
+
+    function showError(text) {
+      errorBox.textContent = text || "";
+    }
+
+    function optionList(selected) {
+      return products.map((product) => {
+        const option = document.createElement("option");
+        option.value = product.product_id;
+        option.textContent = product.title + " · " + product.price;
+        option.selected = product.product_id === selected;
+        return option;
+      });
+    }
+
+    function render() {
+      slotsBox.replaceChildren();
+      emptyBox.hidden = rows.length > 0;
+      rows.forEach((row, index) => {
+        const line = document.createElement("div");
+        line.className = "slot";
+        const time = document.createElement("input");
+        time.type = "time";
+        time.required = true;
+        time.value = row.time;
+        time.addEventListener("input", () => { row.time = time.value; });
+        time.addEventListener("change", () => { row.time = time.value; });
+        const price = document.createElement("input");
+        price.type = "number";
+        price.min = "1";
+        price.max = "999999";
+        price.step = "1";
+        price.required = true;
+        price.setAttribute("aria-label", "标价");
+        price.value = row.price || "";
+        price.placeholder = "500";
+        price.addEventListener("input", () => { row.price = price.value; });
+        price.addEventListener("change", () => { row.price = price.value; });
+        const product = document.createElement("select");
+        product.append(...optionList(row.product_id));
+        product.addEventListener("change", () => { row.product_id = product.value; });
+        const trial = document.createElement("button");
+        trial.type = "button";
+        trial.className = "now";
+        trial.textContent = "试发";
+        trial.addEventListener("click", () => previewPublish(row, trial));
+        const now = document.createElement("button");
+        now.type = "button";
+        now.className = "now";
+        now.textContent = "现在发";
+        now.disabled = !row.slot_id;
+        now.addEventListener("click", () => publishNow(row, now));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "删除";
+        remove.addEventListener("click", () => {
+          rows.splice(index, 1);
+          render();
+        });
+        const heading = document.createElement("input");
+        heading.type = "text";
+        heading.className = "copy-title";
+        heading.maxLength = 30;
+        heading.required = true;
+        heading.setAttribute("aria-label", "标题");
+        heading.placeholder = "标题";
+        heading.value = row.title || row.preview_title || "";
+        heading.addEventListener("input", () => {
+          const next = heading.value.trim();
+          row.title = next === (row.preview_title || "").trim() ? "" : next;
+        });
+        const description = document.createElement("textarea");
+        description.className = "copy-body";
+        description.maxLength = 800;
+        description.required = true;
+        description.setAttribute("aria-label", "描述");
+        description.placeholder = "描述";
+        description.value = row.description || row.preview_description || "";
+        description.addEventListener("input", () => {
+          const next = description.value.trim();
+          row.description = next === (row.preview_description || "").trim() ? "" : next;
+        });
+        line.append(time, price, product, trial, now, remove, heading, description);
+        slotsBox.append(line);
+      });
+    }
+
+    function renderRuns(schedule) {
+      document.querySelector("#detail").textContent = schedule.detail || "";
+      const box = document.querySelector("#runs");
+      box.replaceChildren();
+      if (!schedule.runs.length) {
+        const none = document.createElement("p");
+        none.className = "note";
+        none.textContent = "今天还没有到点发布。";
+        box.append(none);
+        return;
+      }
+      const names = new Map(rows.map((row) => [row.slot_id, row.time]));
+      schedule.runs.forEach((run) => {
+        const line = document.createElement("p");
+        line.className = "run" + (run.status === "failed" ? " failed" : "");
+        const when = names.get(run.slot_id) || "已删除的时间";
+        line.textContent = when + " · " + (run.status === "published" ? "已发" : "没发成") + " · " + run.detail;
+        box.append(line);
+      });
+    }
+
+    async function loadProducts() {
+      const response = await fetch("/api/products");
+      if (!response.ok) throw new Error("服务列表没有读出来");
+      products = await response.json();
+    }
+
+    async function loadSchedule() {
+      const response = await fetch("/api/publish/schedule");
+      if (!response.ok) throw new Error("时间表没有读出来");
+      const schedule = await response.json();
+      document.querySelector("#enabled").checked = schedule.enabled;
+      document.querySelector("#samples").value = schedule.samples_text || "";
+      rows = schedule.slots.map((slot) => ({ ...slot }));
+      render();
+      renderRuns(schedule);
+    }
+
+    async function save() {
+      showError("");
+      const payload = {
+        enabled: document.querySelector("#enabled").checked,
+        slots: rows.map((row) => ({
+          slot_id: row.slot_id || null,
+          time: row.time,
+          product_id: row.product_id,
+          price: String(row.price || ""),
+          title: row.title || "",
+          description: row.description || "",
+          enabled: true,
+        })),
+      };
+      const response = await fetch("/api/publish/schedule", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        showError(body.detail || "没保存上");
+        return;
+      }
+      rows = body.slots.map((slot) => ({ ...slot }));
+      render();
+      renderRuns(body);
+    }
+
+    async function previewPublish(row, button) {
+      showError("");
+      button.disabled = true;
+      const response = await fetch("/api/publish/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_id: row.product_id,
+          slot_id: row.slot_id || "",
+          price: String(row.price || ""),
+          title: row.title || "",
+          description: row.description || "",
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      button.disabled = false;
+      if (!response.ok) {
+        showError(typeof body.detail === "string" ? body.detail : "试发没有写出来");
+        return;
+      }
+      const box = document.querySelector("#runs");
+      box.replaceChildren();
+      const line = document.createElement("p");
+      line.className = "run";
+      line.textContent = body.detail + "\n" + body.title + "\n标价 " + body.price + " 元\n" + body.description;
+      box.append(line);
+    }
+
+    async function publishNow(row, button) {
+      showError("");
+      if (!row.slot_id) {
+        showError("先保存，再发这一条。");
+        return;
+      }
+      button.disabled = true;
+      const response = await fetch("/api/publish/slots/" + encodeURIComponent(row.slot_id) + "/run", { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      button.disabled = false;
+      if (!response.ok) {
+        showError(body.detail || "没发出去");
+        return;
+      }
+      if (body.status !== "published") showError(body.detail || "没发出去");
+      await loadSchedule();
+    }
+
+    document.querySelector("#add").addEventListener("click", () => {
+      if (rows.length >= 12) {
+        showError("一天最多 12 个时间。");
+        return;
+      }
+      if (!products.length) {
+        showError("没有可发布的服务。");
+        return;
+      }
+      rows.push({
+        slot_id: "",
+        time: "09:30",
+        product_id: products[0].product_id,
+        price: "500",
+        title: "",
+        description: "",
+        enabled: true,
+      });
+      render();
+    });
+    document.querySelector("#save").addEventListener("click", () => { save().catch((error) => showError(error.message)); });
+    document.querySelector("#save-samples").addEventListener("click", () => {
+      showError("");
+      fetch("/api/publish/samples", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: document.querySelector("#samples").value }),
+      }).then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          showError(body.detail || "文案没保存上");
+          return;
+        }
+        await loadSchedule();
+      }).catch((error) => showError(error.message));
+    });
+
+    loadProducts().then(loadSchedule).catch((error) => showError(error.message));
+  </script>
+</body>
+</html>
